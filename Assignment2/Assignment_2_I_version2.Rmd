@@ -1,0 +1,168 @@
+---
+title: "Assignment 2: Part I"
+subtitle: "MAT-32806 Statistics for Data Scientists"
+author: 
+  - Citlali Melchor Ramírez^[Reg. No. 930522157110, Biosystems Engineering, <citlali.melchorramirez@wur.nl>]
+date: "`r format(Sys.time(), '%d %b %Y')`"
+output:
+  bookdown::pdf_document2
+geometry: left=1in, right=1in, top=1in, bottom=1.5in
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, 
+                      results='hide',
+                      warning=FALSE, 
+                      message=FALSE,
+                      fig.width=5, 
+                      fig.height=4, 
+                      tidy = FALSE,
+                      fig_crop=TRUE)
+# Libraries
+library(pander)
+library(broom)
+library(lme4)
+library(pbkrtest)
+library(emmeans)
+
+```
+
+# Introduction
+The aim of the study is to compare compare two feed rations with respect to growth of animals. The experiment involves 24 animals from twelve representative litters. From each litter a pair of randomly chosen animals is involved in the experiment. Animals from the same pair are from the same sex (Figure \@ref(fig:pigs)). There are six pairs with males and six pairs with females, assigned as 1 and 2 in the "Sex" factor, respectively. The two feed rations are randomly assigned to the two animals within each pair. Response $y$ is the growth per animal over a fixed period of time. 
+
+```{r pigs, fig.cap='Experiment setup', results='asis',out.width = "350px", fig.align='center'}
+knitr::include_graphics("pigs.jpg")
+options(knitr.graphics.auto_pdf = TRUE)
+
+```
+
+```{r ReadData, results='hide'}
+# Reading the data from file
+Data1<-read.table('DATARationSplitPlot.txt',header=T)
+pander(head(Data1))
+attach(Data1)
+
+# Changing variates to factors
+Pair<-factor(pair)
+Ration<-factor(ration)
+Sex<-factor(sex,labels=c('male','female'))
+
+```
+ 
+The interest focusses on the feed rations as well as whether the feed rations work out the same way for males and females. 
+
+# Data description 
+
+Table 1 sumarizes the growth per animal response in the experiment, while Figure \@ref(fig:DescribeData) shows the distribution of the data. As we can see, the mean was 31.45, with a standard deviation of 2.6424 and it does not have a normal distribution.
+
+```{r DescribeData, results='markdown', fig.cap='Response distribution'}
+pander(summary(Data1$y), 
+       caption='Response summary')
+hist(Data1$y,
+     xlab='Growth per animal',
+     main='',
+     col='lightblue',
+     breaks=5)
+
+```
+
+Moreover, Figure \@ref(fig:boxes) shows that, eventhough there is a difference of rations and sex in the animals growth, it is not easy to compare the effect of both variables or the interactions among them. 
+
+```{r boxes, fig.cap='Comparative boxplots', fig.width=6,fig.height=3, results='asis'}
+par(mfrow=c(1,3))
+boxplot(Data1$y~Data1$ration,
+        col="lightblue",
+        ylab="Growth" , 
+        xlab="Ration")
+boxplot(Data1$y~Data1$sex,
+        col="lightpink",
+        ylab="Growth" , 
+        xlab="Sex")
+boxplot(Data1$y~Data1$pair,
+        col="lightgreen",
+        ylab="Growth" , 
+        xlab="Pairs")
+
+```
+
+# Statistics description
+
+As mentioned before, the pairs of animals were selected from the same litter, which involves an interaction within each pair. Additionally, there may be differences between litters and thus, pairs (management, environment, genetics, etc). Due to these interactions, it was consider a linear mixed model to analize the dependency of the data and the fixed and random effects. The first approach to this model was:
+
+$$y_{ijk}=\mu+r_i+s_j+g_{ij}+\epsilon_{ijk}$$
+
+where: 
+$\mu$ - base level
+
+$r_i,\ i=1,2$ - fixed effects for ration
+
+$s_j, j=1,2$ - random effects for sex (1:male, 2:female)
+
+$g_{ij}$ - random interaction between ration and sex
+
+$\epsilon_{ijk},\ k=1,...,12$ - random residual error terms. 
+
+with zero means and components of variance $\sigma_s^2$, $\sigma_g^2$ and $\sigma^2$, respectively.
+
+
+```{r aovModelR, results='markdown'}
+# anova table for a mixed model with routine aov
+anovaR<-aov(Data1$y~Ration+Sex+Ration:Sex)
+
+pander(summary(anovaR), caption='Anova without dependence')
+
+```
+
+From this preliminar results we have that the p-value for the ration is 0.706, which would mislead to conclude that there is no inlfuence of the ration over the growth of the animals. 
+
+Animals from the same litter share the same random pair effect. If we take into consideration the dependence within pairs ($p_k$), the model would now be:
+
+$$y_{ijk}=\mu+r_i+s_j+g_{ij}+p_k+\epsilon_{ijk}$$
+
+
+```{r aovModelF, results='markdown', tidy=TRUE}
+# anova table for a mixed model with routine aov
+anovaF<-aov(y~Ration+Sex+Sex:Ration+Error(Pair), data=Data1)
+#summary(anovaF)
+pander(lapply(anovaF, tidy)[2:3], caption='Anova with dependence')
+
+``` 
+
+
+The residuals give $(12-1-1)=10$ degrees of freedom for random pairs. The MSE for ration is not zero, which implies that the Ration does affect the animals' growth. Looking at the $F-value=8.757$, the large number also indicates that there are differences between the Ration in the expected growth. Moreover, the p-value is smaller than in the above mentioned model. 
+
+
+The same model was analysed with REML method.
+
+```{r, results="markdown", tidy=TRUE, comment=" "}
+
+# the mixed model again, but now analysed with REML
+remlF<-lmer(Data1$y~Ration+Sex+Ration:Sex
+           +(1|Pair))
+remlR<-lmer(Data1$y~Ration+Sex
+           +(1|Pair))
+Fint<-KRmodcomp(remlF,remlR)
+summary(Fint)
+
+```
+
+
+# Balanced data
+if balance data, the results for f-test are the same in anova and reml
+
+
+```{r rationsCompare, results='markdown',tidy=TRUE}
+# the pairwise comparisons between treatments
+library(emmeans)
+compare<-emmeans(remlF,pairwise~Ration, adjust="none")
+pander(summary(compare))
+
+```
+
+
+```{r}
+plot(cars)
+```
+
+
+Ration randomly assigned to each animal and sex randomly selected from each pair within a litter. 

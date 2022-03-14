@@ -1,0 +1,241 @@
+---
+title: "Assignment 2: Part II (version 2)"
+subtitle: "MAT-32806 Statistics for Data Scientists"
+author: 
+  - Citlali Melchor Ramírez^[Reg. No. 930522157110, Biosystems Engineering, <citlali.melchorramirez@wur.nl>]
+date: "`r format(Sys.time(), '%d %b %Y')`"
+output:
+  bookdown::pdf_document2
+geometry: left=1in, right=1in, top=1in, bottom=1in
+classoption: a4paper
+spacing: single
+bibliography: genome.bib
+link-citations: true
+
+---
+
+
+```{r setup, include=FALSE}
+# Chunks configuration 
+knitr::opts_chunk$set(echo = FALSE, 
+                      results='hide',
+                      warning=FALSE, 
+                      message=FALSE,
+                      fig.width=4, 
+                      fig.height=3, 
+                      tidy = FALSE)
+# Libraries used in this assignment
+library (pander)
+library (gam)
+library (mgcv)
+library (leaps)
+library (ISLR)
+```
+
+\pagebreak 
+
+# Introduction
+\vspace{-3truemm}
+It is wanted to predict grain number in a specific maize hybrid across 25 different environments, using a number of environmental characterizations: _Average minimum temperature during the night one of three growth periods_ ($T_{night.1},\ T_{night.2},\ T_{night.3}$), _Average radiation intercepted during the same three periods_ ($R_{i.1},\ R_{i.2},\ R_{i.3}$), _Average soil water potential_ ($P_{si.2},\ P_{si.3}$) and _Average maximum temperature_ ($T_{max.1},\ T_{max.2},\ T_{max.3}$). @Millet749 fitted a simple linear model for the full set of hybrids with the predictors $T_{min.2}$, $R_{i.1}$, and $P_{si.2}$. The aim of this practical is to try out different models to see whether it is possible to improve this simple model, which only uses 3 degrees of freedom. 
+\vspace{-3truemm}
+
+```{r Data2, tidy=TRUE}
+# Import the data
+Data2<-read.csv('maize data SDS assignment v2.csv',header=T)
+attach(Data2)
+```
+
+# Generalized Additive Models 
+\vspace{-3truemm}
+The _Generalized Additive Models_ (GAM) are extensions to standard linear models allowing non-linear functions and maintaining additivity. 
+\vspace{-4truemm}
+
+## Original model 
+\vspace{-3truemm}
+The first model (`Linear`) is the model from @Millet749, linear in all three predictors. Table \@ref(tab:model1) shows the ANOVA analysis of this model; we can see that the p-values for the predictors are smaller than 0.05 which means they are statistically significant. In Figure \@ref(fig:originalModelplot) we can see that the number of grains decreases with the minimum night temperature and increases with the radiation intercepted and the soil water potential. 
+\vspace{-4truemm}
+
+## Polynomial 
+\vspace{-3truemm}
+The next model analysed was the case in which a second degree polynomial is added (`Polynomial`). Table \@ref(tab:model2) shows the ANOVA analysis of this model, where we can see that the predictors are significant; moreover, in Figure \@ref(fig:model2Plot) we can see that the relation remains similar with the previous model for $T_{night.w}$ and $P_{si.2}$, but changes for the radiation, where the grains number seems to reach a maximum around 280 and then starts to decrease. 
+\vspace{-4truemm}
+
+## Natural Splines
+\vspace{-3truemm}
+Then, it was considered a model with natural splines of 4 degrees of freedom (`Gamns`). Table \@ref(tab:model3) shows the ANOVA analysis of this model; in contrast with the previous models, the predictor $P_{si.2}$ presents a value slightly higher than 0.05. Moreover in Figure \@ref(fig:model3Plot) we can see that the relations between predictors and response is not as simple to interpret as with the previous models.
+\vspace{-4truemm}
+
+## Combined functions
+\vspace{-3truemm}
+Another possibility with GAM models is to combine different functions for each predictor (`GamMix`). An example of this was implemented in a mixed model, where the functions given to each predictor were linear, logarithmic and natural spline, for $T_{min.2}$, $R_{i.1}$, and $P_{si.2}$, respectively.  Table \@ref(tab:model4) shows the ANOVA analysis of this model and Figure \@ref(fig:model4Plot) the corresponding plots. 
+\vspace{-4truemm}
+
+## Different predictors: _Subset selection_
+\vspace{-3truemm}
+Finally, it was consider the possibility of having a different subset of predictors than those used in the original model. To analyse this, it was used the `regsubset` function with the `backward` method (Table \@ref(tab:SubSelec)), and the selected predictors were $T_{max.1}$, $T_{night.2}$, $P_{si.2}$. It was chosen a Natural Splines Model with 4 degrees of freedom (`GamnsDiff`). It is important to mention that the number of predictors stuck to three, to maintain the simplicity of the model, even thought a higher number of predictors could improve even more the model performance (Figure \@ref(fig:predSelect)). Table \@ref(tab:model5) shows the ANOVA analysis for this model. 
+\vspace{-3truemm}
+
+# Conclusions
+\vspace{-3truemm}
+Table \@ref(tab:summ) shows a summary with the $R^2-adjusted$ values, the _Generalized Cross Validation_ errors (GCV) and the _Scale estimate_ for the above mentioned models. It is possible to observe that the Natural Splines models (`Gamns` and `GamnsDiff`) have a lower squared residual standard error , which indicates an improvement over the original model. However,the `Gamns` model has a higher GCV value than the original Linear model. Furthermore, the `GamnsDiff` model, which uses different predictors, shows a lower GCV error and Scale estimate in comparison with the rest of the models. From this results it is possible to conclude that the `GamnsDiff` model performs the best, from the statistical point of view because it is more flexible, nevertheless there is a trade-off with its interpretability.
+
+```{r Allmodels}
+# Original model 
+fit.lin <- gam(grain.number ~ 
+                 Tnight.2 + 
+                 Ri.1 + 
+                 Psi.2)
+# Second degree polynomial model
+fit.poly <- gam(grain.number ~ 
+                  poly(Tnight.2,degree=2) + 
+                  poly(Ri.1, degree=2) + 
+                  poly(Psi.2, degree=2))
+# Natural splines model
+fit.gamns <- gam(grain.number ~ 
+                   ns(Tnight.2,df = 4) + 
+                   ns(Ri.1, df = 4) + 
+                   ns(Psi.2, df=4))
+# Combined functions model
+fit.gammix <- gam(grain.number ~ 
+                  Tnight.2  + 
+                  lo(Ri.1, span=0.7) + 
+                  ns(Psi.2, df=4))
+#Different predictors
+fit.gamnsDiff <- gam(grain.number ~
+                   ns(Tmax.1, df = 4) +
+                   ns(Tnight.2, df=4) +
+                   ns(Psi.2, df=4))
+```
+
+
+
+# References
+
+<div id="refs"></div>
+
+# Appendices
+## Tables
+
+
+```{r tab:model1, results='asis'}
+# Original model
+pander(anova(fit.lin)$pTerms.table, 
+       caption='(#tab:model1)ANOVA for the original model from @Millet749')
+```
+
+
+```{r tab:model2, results='asis'}
+# Second degree polynomial model
+pander(anova(fit.poly)$pTerms.table, 
+       caption='(#tab:model2)ANOVA for second degree polynomial model' )
+```
+
+```{r tab:model3, results='asis'}
+# Natural splines model
+pander(anova(fit.gamns)$pTerms.table,
+       caption='(#tab:model3)ANOVA for natural splines model' )
+```
+
+```{r tab:model4, results='asis'}
+# Combined functions model
+pander(anova(fit.gammix)$pTerms.table,
+       caption='(#tab:model4)ANOVA for combined functions model' )
+```
+
+```{r tab:model5, results='asis'}
+# Different predictors
+pander(anova(fit.gamnsDiff)$pTerms.table,
+       caption="(#tab:model5) ANOVA for natural splines 
+       model with different predictors ")
+```
+
+```{r tab:SubSelec, results='asis'}
+# Subset selection 
+regfit.full=regsubsets(grain.number~
+                         Tnight.1 + Tnight.2 + Tnight.3 +
+                         Ri.1 + Ri.2 + Ri.3 +
+                         Psi.2 + Psi.3 +
+                         Tmax.1 + Tmax.2 + Tmax.3,
+                       nvmax=10,
+                       data=Data2,
+                       method="backward")
+pander(summary(regfit.full)$outmat, 
+       caption="(#tab:SubSelec) Subset selection of predictors", split.table=Inf)
+```
+
+```{r tab:summ, results='asis'} 
+Rsq<-list ('names'=c('Linear','Polynomial', 'Gamns', 'GamMix','GamnsDiff'), 
+               'R2-adjusted'=
+             c(summary(fit.lin)$r.sq,
+                  summary(fit.poly)$r.sq,
+                  summary(fit.gamns)$r.sq,
+                  summary(fit.gammix)$r.sq,
+                  summary(fit.gamnsDiff)$r.sq),
+           'Generalized Cross Validation'=
+             format(c(summary(fit.lin)$sp.criterion, 
+                  summary(fit.poly)$sp.criterion, 
+                  summary(fit.gamns)$sp.criterion,
+                  summary(fit.gammix)$sp.criterion,
+                   summary(fit.gamnsDiff)$sp.criterion), scientific=TRUE, digits=4),
+           'Squared Residual Standard Error'= 
+             format(c(summary(fit.lin)$scale,
+                  summary(fit.poly)$scale, 
+                  summary(fit.gamns)$scale,
+                  summary(fit.gammix)$scale,
+                  summary(fit.gamnsDiff)$scale), scientific=TRUE, digits=4)
+             )
+pander(as.data.frame(Rsq, col.names = c('Model','R2-adjusted', 'GCV','Scale-est.' )), 
+       caption='(#tab:summ) Models Summary')
+```
+
+
+## Figures
+
+```{r originalModelplot, fig.width=8, fig.cap="Original Model"}
+# Original model plots
+par(mfrow = c(1,3))
+plot(fit.lin, se = TRUE, all.terms = TRUE)
+``` 
+
+```{r model2Plot, fig.width=8, fig.cap="Polynomial Model"}
+# Polynomial model plots
+par(mfrow = c(1,3))
+plot(fit.poly, se = TRUE, all.terms = TRUE)
+```
+
+```{r model3Plot, fig.width=8, fig.cap="Natural Splines Model"}
+# Natural splines model plots
+par(mfrow = c(1,3))
+plot(fit.gamns, se = TRUE, all.terms = TRUE)
+```
+
+
+```{r model4Plot, fig.width=8, fig.cap="Combined Model"}
+# Combined model plots
+par(mfrow = c(1,3))
+plot(fit.gammix, se = TRUE, all.terms = TRUE)
+```
+
+```{r model5Plot, fig.width=8, fig.cap="Natural Splines Model with different predictors"}
+# Different predictors model plots
+par(mfrow = c(1,3))
+plot(fit.gamnsDiff, se = TRUE, all.terms = TRUE)
+```
+
+```{r predSelect, fig.cap="Subset Selection of Predictors", fig.height=4, fig.width=6}
+# Selection of predictors
+plot(summary(regfit.full)$rss, 
+     xlab="Number of Predictors", 
+     ylab="Residual Sum of Squares", 
+     type="b",
+     col='red')
+``` 
+
+\pagebreak 
+
+## R Code
+
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+```
+
+
