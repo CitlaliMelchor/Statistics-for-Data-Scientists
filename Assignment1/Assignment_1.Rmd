@@ -1,0 +1,535 @@
+---
+title: "Assignment 1"
+subtitle: "MAT-32806 Statistics for Data Scientists"
+author: 
+  - Citlali Melchor Ramírez^[Biosystems Engineering, <citlali.melchorramirez@wur.nl>]
+date: "`r format(Sys.time(), '%d %b %Y')`"
+output: bookdown::pdf_document2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+# Libraries used for the assignment
+library(ggplot2)
+library(kableExtra)
+library(pander)
+library(emmeans)
+library(glmnet)
+library(plotmo)
+library(pls)
+
+```
+
+***
+
+# Part 1 {-}
+## Introduction {-}
+_Botrytis cinerea_ is a pathogen that can infect beans _(Phaseolus vulgarus)_. One expect that the damage is more severe in plants that are weak due to ozone-gas. To investigate this, 20 days old plants of 3 cultivars (Strat, Pros and Lit) are taken and given an ozone-treatment with concentration 0, 120, 180 or 270 ppm. For each concentration 30 plants of each cultivar were used. Subsequently each plant was inoculated with botrytis and after a few days it was observed if a plant was infected or not. 
+
+
+## a. Description of the data {-}
+Figure \@ref(fig:cases) shows the total number of infected plants for each Ozone concentration. As expected, it seems that the ozone concentration weakens the plants, and thus they are succeptible to infections of the pathogen. The mean percentage of infection is 56.1%
+
+```{r cases, echo=FALSE,results='hide',fig.width=4, fig.height=3, fig.cap = "Number of infected plants related to the Ozone concentration"}
+
+theme_set(
+  theme_classic() + 
+    theme(legend.position = "top")
+  )
+
+## Part 1
+
+# Import the data from the .csv file
+Data1 <- read.csv("assi_wk2_part1.csv",
+                  colClasses=c('numeric', 'factor', 'factor','factor'))
+head(Data1)
+
+# Create a simple plot to visualize some of the data
+ggplot(Data1, aes(y = Ozone)) +
+ geom_bar(aes(fill = Infected), position = position_stack(reverse = TRUE)) +
+ theme(legend.position = "top")+
+ scale_fill_brewer(palette="Dark2",name = "",labels = c("Not infected", "Infected"))+
+ labs(x = "Number of cases, [-]", y="Ozone concentration, ppm")
+
+summary(Data1)
+
+```
+
+
+
+```{r, echo=FALSE,results='hide'}
+Data1 <- read.csv("assi_wk2_part1.csv", 
+                  colClasses=c('numeric', 'numeric', 'factor','numeric'))
+summary(Data1)
+
+# Percentages for Infected plants by Cultivar
+table1 <- table(Data1$Cultivar, Data1$Infected)
+prop.table(table1)
+# Percentages for Infected plants by Cultivar
+table2 <- table(Data1$Ozone, Data1$Infected)
+prop.table(table2)
+```
+
+
+The percentages of infected plants does not present large variations from one cultivar to another (Table 1). As for the Ozone concentration, the percentages of infected plants changes more significantly (Table 2). 
+
+
+```{r,echo=FALSE, results='asis'}
+# Print the tables of percentages
+tab1<-knitr::kable(table1, col.names = c("Not infected, %", "Infected, %"),
+                   caption = "Percentage of Infected plants per Cultivar.")
+kable_styling(tab1, latex_options = "hold_position")
+
+
+tab2<-knitr::kable(table2, col.names = c("Not infected, %", "Infected, %"),
+                   caption = "Percentage of Infected plants per Ozone concentration.")
+kable_styling(tab2, latex_options = "hold_position")
+
+
+```
+
+
+## b. Effect of Ozone and Cultivar on the Infection.{-}
+
+Figure \@ref(fig:log1) shows a comparison between linear regression and logistic regression models for the ozone concentration as explanatory variable, and the pobability of infection in the plants as response, without considering the influence of other variables. In this case, the _logistic model_ is addequate because rather than a numerical value, it is needed to model whether the response falls into one of two categories: "infected" or "not infected". This probability could not higher than one (Infected) or lower than zero (Not infected), even for ozone concentrations higher than 270 ppm. 
+
+```{r log1, echo=FALSE,results='hide',fig.width=7, fig.height=4,fig.cap = "Linear Regression vs Logistic regression model"}
+ordinaryregression <- lm(Infected~Ozone,Data1)
+fitted_probability_regression <- fitted.values(ordinaryregression)
+
+b0<-0.0864198           # Intercept
+b1<-0.0033312           # Slope
+
+lp <- b0+b1*Data1$Ozone # Linear probability
+p<-1/(1+exp((-1)*lp))   # Probabilities p according to inverse of logit link
+
+
+# Create a subplot
+par(mfrow=c(1,2),mar = c(4.5, 4, 1, 1))
+# Plot linear model
+plot(Infected~Ozone,Data1,xlab="Ozone concentration, ppm", ylab="Infected, [-]")
+abline(ordinaryregression,col="gray19",lwd=2)
+grid(NA, 5, lwd = 2) # grid only in y-direction
+legend("topleft", legend=c("Data points", "Linear model"),
+       col=c("black", "gray19"),lty=0:2, pch=c(1,NA))
+
+# Plot the fitted probability regression points
+plot(fitted_probability_regression~Ozone,Data1,
+     pch=17,col="darkblue",
+     xlab="Ozone concentration, ppm", 
+     ylab="Infected, [-]")
+
+# Effect of (only) Ozone 
+oneminusy <- 1-Data1$Infected
+logisticregression <- glm(cbind(Data1$Infected,oneminusy)~Data1$Ozone,
+                          binomial(link = "logit"))
+summary(logisticregression)
+anova(logisticregression)
+# Coefficients of the logistic regression model
+beta <- coefficients(logisticregression)
+beta_0 <- beta[1]   # Estimated intercept beta0
+beta_1 <- beta[2]   # Estimated slope beta1
+
+curve(1/(1+exp((-1)*(beta_0+beta_1*x))),add=T, col="gray19",lwd=2)
+legend("topleft", legend=c("Fitted Probability", "Logistic model"),
+       col=c("darkblue", "gray19"),
+       lty=0:2, pch=c(17,NA))  
+
+grid(NA, 5, lwd = 2) # Grid only in y-direction
+
+```
+
+Furthermore, Figure \@ref(fig:cultivareffects) shows the logistic regression models per cultivar for the ozone concentration as explanatory variable of the pobability of infection in the plants. 
+
+```{r cultivareffects, echo=FALSE, results='hide',fig.width=5, fig.height=4, fig.cap = "Logistic regression model per Cultivar"}
+# Divide the data per cultivar
+Lit <- subset(Data1,Cultivar=="Lit")
+Pros <- subset(Data1,Cultivar=="Pros")
+Strat <- subset(Data1,Cultivar=="Strat")
+
+oneminusy1 <- 1-Lit$Infected
+oneminusy2 <- 1-Pros$Infected
+oneminusy3 <- 1-Strat$Infected
+
+
+logisticregression_Lit <- glm(cbind(Lit$Infected,oneminusy1)~Lit$Ozone,
+                              binomial(link = "logit"))
+logisticregression_Pros <- glm(cbind(Pros$Infected,oneminusy2)~Pros$Ozone,
+                               binomial(link = "logit"))
+logisticregression_Strat <- glm(cbind(Strat$Infected,oneminusy3)~Strat$Ozone,
+                                binomial(link = "logit"))
+
+beta1 <- coefficients(logisticregression_Lit)
+beta2 <- coefficients(logisticregression_Pros)
+beta3 <- coefficients(logisticregression_Strat)
+
+
+plot(fitted_probability_regression~Ozone,Data1,
+     pch=17,col="darkblue",
+     xlab="Ozone concentration, ppm", 
+     ylab="Infected, [-]")
+
+# Plot the curves of logistic regression per cultivar
+curve(1/(1+exp((-1)*(beta1[1]+beta1[2]*x))),add=T, col="forestgreen",lty=1,lwd=2)
+curve(1/(1+exp((-1)*(beta2[1]+beta2[2]*x))),add=T, col="cyan4",lty=2,lwd=2)
+curve(1/(1+exp((-1)*(beta3[1]+beta3[2]*x))),add=T, col="orangered3",lty=6,lwd=2)
+
+legend("topleft", legend=c("Fitted Probability", "Lit","Pros","Strat"),
+       col=c("darkblue", "forestgreen", "cyan4 "," orangered3" ),
+       lty=c(0,1,2,6), 
+       pch=c(17,NA,NA,NA,NA)) 
+
+grid(NA, 5, lwd = 2) # grid only in y-direction
+
+```
+
+## c. Interactions between variables {-}
+
+To test if there are interaction between the Cultivar and the Ozone concentration, two logistic models were generated, one with full interaction and one with a reduced interaction. 
+
+
+The curves generated with such models are shown in Figure \@ref(fig:interactions) .
+
+```{r, interactions,results='hide', echo=FALSE, fig.width=5, fig.height=4,fig.cap="Interactions between variables. a) Full: ozone + cultivar + ozone:cultivar, b) Reduced: ozone + cultivar"}
+# Plot the fitted data points
+plot(fitted_probability_regression~Ozone,Data1,
+     pch=17, col="darkblue",
+     xlab="Ozone concentration, ppm", 
+     ylab="Infected, [-]")
+
+# Full interaction: a + b + a:b
+logisticregression_int <- glm(cbind(Data1$Infected,oneminusy)~
+                                Data1$Ozone+Data1$Cultivar+Data1$Ozone:Data1$Cultivar,
+                              binomial(link = "logit"))
+
+beta_int <- coefficients(logisticregression_int)
+curve(1/(1+exp((-1)*(beta_int[1]+beta_int[2]*x))),add=T, col="orangered3",lwd=2)
+
+# Reduced interaction: a + b 
+logisticregression_int2 <- glm(cbind(Data1$Infected,oneminusy)~
+                                 Data1$Ozone+Data1$Cultivar,binomial(link = "logit"))
+
+beta_int2 <- coefficients(logisticregression_int2)
+curve(1/(1+exp((-1)*(beta_int2[1]+beta_int2[2]*x))),add=T, col="cyan4",lwd=2, lty=2)
+
+legend("topleft", 
+       legend=c("Fitted Probability", "Full","Reduced"),
+       col=c("darkblue", "orangered3", "cyan4 "),
+       lty=c(0,1,2), 
+       pch=c(17,NA,NA)) 
+
+grid(NA, 5, lwd = 2) # grid only in y-direction
+
+```
+
+Both models were analysed with ANOVA and the results of this analysis are shown in Table 3. The difference in parameters is given by the change in degrees of freedom (Df = 2) for the approximate chi-square test. The corresponding p-value is 0.6547, which is higher than $\alpha=0.05$ and thus, we can accept the null hypothesis and discard the interaction. 
+
+```{r anov_results,echo=FALSE, results='asis'}
+# Create a table with the ANOVA results
+
+pander( anova(logisticregression_int2,logisticregression_int, test="Chisq"), 
+        caption="ANOVA results", 
+        missing=" ") 
+
+```
+
+Moreover, we can test the effects per cultivar in the reduced model, for which curves were shown previously in Figure \@ref(fig:cultivareffects). As we can see en Table 4, the p-values for each group is >>0.05, which indicates that there are no effects of the cultivars on the prediction for infected plants. The ozone concentration is not possible to compare pair wise since it is not considered as factor.    
+
+```{r influence, echo=FALSE, results='hide'}
+anova(logisticregression,logisticregression_int2, test="Chisq")
+
+z <- Data1$Ozone-mean(Data1$Ozone)
+logisticregressionRz<-glm(cbind(Data1$Infected,oneminusy)~Data1$Cultivar+z,
+                          binomial(link = "logit"))
+
+
+compareCultivars<-emmeans(logisticregressionRz,pairwise~Cultivar)
+summary(compareCultivars,adjust="none")
+
+```
+
+```{r compare, echo=FALSE, results="asis"}
+# Create a table with the summary results 
+pander(summary(compareCultivars)$contrasts, caption="Cultivars pairwise comparison")
+```
+
+## d. Logistic Regression Model {-}
+
+Since the interaction and effects with the cultivar factor were rejected, a logistic regression model using ozone as the only predictor is analysed. The results from the ANOVA test are sown in Table 5. 
+
+```{r LogDesc, echo=FALSE, results="asis"}
+# Create a table with the ANOVA results for the logistic regression
+pander(anova(logisticregression), missing=" ", 
+       caption="ANOVA results for the logistic regression model")
+```
+
+The summary of the model is shown below, where it is possible to see that the p-value is lower than 0.05, which means that the null hypothesis is rejected and the ozone concentration can be used as an explanatory variable for the infected plants. The coefficients of the model are $\beta_0=-2.544$ and $\beta_1=0.02026$. 
+
+
+```{r RegSum, echo=FALSE, results='asis'}
+# Create a table with the summary of the logistic regression
+pander(summary(logisticregression), summary = TRUE, keep.line.breaks=FALSE)
+```
+
+The curve for the model is shown in Figure \@ref(fig:ozoneR).
+
+```{r ozoneR,results='hide', echo=FALSE, fig.width=5, fig.height=4,fig.cap= "Logistic Regression Model"}
+plot(fitted_probability_regression~Ozone,Data1,
+     pch=17,
+     col="darkblue",
+     xlab="Ozone concentration, ppm", 
+     ylab="Infected, [-]")
+
+curve(1/(1+exp((-1)*(beta_0+beta_1*x))), add=T,col="gray19",lwd=2)
+
+grid(NA, 5, lwd = 2) # grid only in y-direction
+
+```
+
+
+## e. Other Classification Methods {-} 
+Classification methods like LDA, QDA and K-NN are not suitable for this particular data. Since there are just two classes for the response (Infected, Not Infected), the logistic regression model sufficies and it is not necessary to implement a Linear Discriminant Analysis. Then, in LDA a Gausian distribution is assumed, which is not the case for this data. Moreover, the classes are not clearly separated since there are some ozone concentrations that can lead to both responses. Quadratic Discriminant Analysis does not fit with this data because the is more flexible than necessary because the the decision boundary is linear. K-NN classification method is a completely non-parametric approach, thus we do not know which are the important predictors, and there is no shape of the decision boundary assumed from this method. This could compromise the interpretability of the model. 
+
+
+
+
+***
+
+# Part 2 {-}
+## Introduction {-}
+The dataset  consists of ash content (in percentages) and fluorescence spectra from 324.5 to 560.0 nm of 266 samples of suggar. The goal is to predict ash content from the spectra. 
+
+```{r , echo=FALSE, results="hide",warning=FALSE, message=FALSE}
+## Part 2
+
+# Load the data
+load(file="sugar.Rdata")
+Data2<-as.data.frame(cbind(ash = sugar$ash[-1], sugar$NIR[-1,]))
+```
+
+
+## a. Lasso Model. _Prediction error._{-}
+
+A Lasso model was created using the NIR spectra as explanatory variable and the ash content as response. 
+$$\sum_{i=1}^{n}(y_i-\beta_0-\sum_{j=1}^p\beta_jx_{ij})^2 +\lambda\sum_{j=1}^p|\beta_j|$$
+
+The lambda value was chosen using cross-validation. For this, a grid of values ranging from $\lambda=10^{-2}$ to $\lambda=10^{10}$ was used. 
+
+The MSE of the prediction error for the Lasso model was $MSE_{pred}=2.179879$, with an optimal lambda value of $\lambda_{min}=0.0882571$. 
+
+Figure \@ref(fig:stdcoef) shows the coefficient depending on the choice of lambda. As we can see, some of the coefficients could be exactly zero, which is a characteristic of lasso models. 
+
+```{r stdcoef, echo=FALSE, results='hide',warning=FALSE, message=FALSE, fig.width=5, fig.height=4, fig.cap="Standardized lasso coefficients"}
+# Check the dimensions of the data
+dim(Data2) 
+
+# Set the model variables
+x=model.matrix(ash~.,sugar)[,-1]
+y=sugar$ash
+
+# Create a grid for lambda
+grid=10^seq(10,-2,length=100)
+
+## Create a train and test subset
+set.seed(1)
+train=sample(1:nrow(x),nrow(x)/2)
+test=(-train)
+y.test=y[test]
+
+# Create the lasso model
+lasso.mod = glmnet(x[train,],y[train],alpha=1,lambda=grid)
+plot(lasso.mod)
+
+
+```
+
+
+Moreover, Figure \@ref(fig:cval) shows the cross-validation process where we can see that the minimum is reached somewhere in between -2 and -3, which corresponds with the best lambda value $log(\lambda_{min})=-2.4275$. 
+
+
+```{r cval, echo=FALSE, results='hide', warning=FALSE, message=FALSE, fig.width=5, fig.height=4, fig.cap="Cross validation of the lasso model"}
+# Perform the cross validation 
+set.seed(1)
+cv.out = cv.glmnet(x[train,],y[train],alpha=1)
+plot(cv.out)
+# Best lambda value
+bestlam = cv.out$lambda.min
+# Test the model using the chosen best lambda
+lasso.pred=predict(lasso.mod,s=bestlam,newx=x[train,])
+# Mean square error: prediction error
+MSE_pred<-mean((lasso.pred-y[train])^2)
+```
+
+```{r coefplot, echo=FALSE,results='hide',fig.caption="Lasso model coefficients"}
+# Coefficients
+out = glmnet(x,y,alpha=1,lambda=grid)
+lasso.coef = predict(out,type="coefficients",s=bestlam)[1:473,]
+lasso.coef[lasso.coef!=0]
+
+```
+
+The non-zero coefficients are shown in Table \@ref(tab:lasocoef).
+
+```{r lasocoef,echo=FALSE, results='asis'}
+# Present the non-zero coefficients in a table
+tab8<- knitr::kable(lasso.coef[lasso.coef!=0],caption="Lasso model coefficients")
+kable_styling(tab8, latex_options = "hold_position")
+```
+
+## b. 10-Fold Cross Validation {-}
+
+First the <train> dataset was splitted into 10 random groups. One of them was set aside and the rest were used to train the model. Each trained model was tested against the <train> subset.  This process was repeated so all groups were set aside once. 
+
+The obtained test error was $MSE_{test}=3.683517$, which is higher than the prediction error $MSE_{pred}=2.179879$ (Table \@ref(tab:errors)). This is expected, as the second one was calculated comparing the predictions with the same dataset that the model was trained with; as for the first one, the error is expected to be higher since is compared against a dataset that was not included during the training process. 
+
+```{r splits, echo=FALSE, results="hide",warning=FALSE, message=FALSE}
+# Create the random groups
+splits <- split(sample(1:nrow(sugar$NIR)),1:10)
+# 10-fold cross validation
+MSE_test <- sapply(splits,function(i){
+  lasso_fold <- cv.glmnet(x[train,],y[train],alpha=1)
+  yhat<-predict(lasso_fold,s = bestlam,newx = x[test,])
+  sum(((yhat-y[test])^2)/length(yhat))
+})
+# Test error 
+print(mean(MSE_test))
+
+```
+
+```{r errors, echo=FALSE, results='asis'}
+tab9<-knitr::kable( t(c(MSE_pred, mean(MSE_test))), 
+                    col.names=c("MSE_pred","MSE_test"), 
+                    caption="Error comparison")
+kable_styling(tab9, latex_options = "hold_position")
+```
+
+## c. Predictive Wavelengths. {-}
+Figure \@ref(fig:waves) shows the predictors that have non-zero coefficients with their corresponding wavelength in the fluorescence spectrum. From this graph we can see that the most informative regions are where the intensity has a maximum or minimum. For this case, between approximately 325 nm and 360 nm, around 400 nm and 500 nm.   
+
+```{r waves, echo=FALSE, message=FALSE, warning=FALSE, results="hide", fig.pos = "!H", fig.height=4, fig.width=5, fig.cap="Predictive wavelengths"}
+# Plot the wavelength
+colnames(sugar$NIR)[which(lasso.coef[-1]!=0)]
+colvalues<-c(332,335.5,343,343.4,351,391.5,397,400.5,
+             402.5,484.5,502,503.5,507.5,509.5,510,512)
+plot(colMeans(sugar$NIR)~seq(324.5,560, by=0.5),
+     type="l", 
+     xlab="Wavelength, nm", 
+     ylab="Intensity")
+abline(v=colvalues, col="red")
+
+```
+
+Figure \@ref(fig:Obspred) shows the correlation of the model predicted values against the actual ash content. 
+
+```{r Obspred, echo=FALSE, results="hide",warning=FALSE, message=FALSE, fig.width=5, fig.height=4, fig.cap="Lasso model: Observed vs predicted values"}
+# Compare the model predictions with the actual values
+yhat <- predict(lasso.mod, s=bestlam, newx=sugar$NIR)
+
+plot(sugar$ash, yhat, 
+     xlab="Observed ash content, [%]",
+     ylab="Predicted ash content, [%]",
+     xlim=c(5, 25),
+     ylim=c(5, 25))
+abline(a=0, b=1, col='red')
+grid(NA, 5, lwd = 2) # grid only in y-direction
+```
+
+
+
+
+
+
+
+
+
+## d. Partial Least Squares {-}
+
+A Partial Least Squares (PLs) model was implemented, where the number of latent variables was chosen by leave-one-out cross validation (Figure \@ref(fig:loocv).
+
+The lowest cross validation error occurs when $M=6$ partial least squares directions are used . The associated root mean square error for this number of components is $RMSE=1.6869$, which mean square value is $MSE_{PLS}=2.8457$, that is slightly higher that the train error for the lasso model. This may be acceptable since the number of components is lower than for the lasso model, although for this case, the predictors are those who are changed instead of the coefficients, like in the lasso model. Figure \@ref(fig:PLSobspred) shows the predicted values using the PLS model against the actual values of the test subset. 
+
+```{r loocv, echo=FALSE, results='hide', fig.width=5, fig.height=4,fig.cap="Leave-one-out cross validation"}
+# Leave-one-out cross validation
+sugar_loocv <- plsr(ash~., data=sugar, 
+                    method = "simpls",
+                    ncomp = 10, 
+                    scale = TRUE, 
+                    validation = "LOO")
+plot(RMSEP(sugar_loocv))
+# Evaluate the result for M=6 components
+pls.pred=predict(sugar_loocv,x[test,], ncomp=6)
+mean((pls.pred-y.test)^2)
+``` 
+
+Results of the Leave-one-out cross validation are shown below.
+
+```{r loosummary,echo=FALSE, results="markup", tidy=TRUE, comment="   "}
+summary(sugar_loocv)
+
+``` 
+
+```{r PLSobspred,echo=FALSE, results="hide",warning=FALSE, message=FALSE,fig.width=5, fig.height=4, fig.cap="PLS model: Observed vs predicted values"}
+plot(sugar_loocv, ncomp = 6,
+     xlab="Observed ash content, [%]",
+     ylab="Predicted ash content, [%]",
+     xlim=c(5,25),
+     ylim=c(5,25))
+abline(a=0, b=1, col='red')
+grid(NA, 5, lwd = 2) # grid only in y-direction
+```
+
+
+## e. The Bootstrap {-}
+The Bootstrap was used to estimate the predictions for ash content using the previously created partial least square model, with the selected $M=6$ components, using all the spectra from the dataset. The results were used to estimate the 0.95 confidence interval, with a mean of 13.63, and lower and upper bounds of 9.51 and 19.38, respectively. The results of this method are summarized in Figure \@ref(fig:histboot). 
+
+```{r boot, echo=FALSE, results="hide"}
+# The Bootstrap
+bootstrap_ash <- sapply(1:266,function(i){
+  mydata<-as.data.frame(cbind(ash=sugar$ash[-i],sugar$NIR[-i,]))
+  boot.mod<-plsr(ash~., data=mydata,
+                 method = "simpls",
+                 ncomp=6,
+                 scale = TRUE)
+  predict(boot.mod, newdata=sugar$NIR[i,,drop=FALSE], ncomp=6)
+})
+
+``` 
+
+
+```{r histboot, echo=FALSE, results="hide", fig.width=5, fig.height=4, fig.cap="Bootstrap resampling method", fig.pos="h!"}
+# Test error 
+hist(bootstrap_ash, 
+     xlab="Bootstrap predictions for Ash content, [%]", 
+     main="", 
+     breaks=20,
+     col="aliceblue", 
+     border="gray19")
+
+# Calculate the confidence intervals
+sortedbootstrap_preds <- sort(bootstrap_ash)
+
+yhat <-mean(bootstrap_ash) # mean
+lwr<-sortedbootstrap_preds[0.05*length(bootstrap_ash)] # lower bound
+upr<-sortedbootstrap_preds[0.95*length(bootstrap_ash)] # upper bound
+
+# Plot the confidence intervals
+points(c(yhat,lwr,upr), y=c(0,0,0), 
+       type = "p", 
+       cex=2,
+       pch=c(15,16,17),
+       col=c("orangered3", "turquoise4","tan2"))
+
+legend("topright", legend=c("Mean = 13.64", "Lower bound = 9.51","Upper bound = 19.38"),
+       col=c("orangered3", "turquoise4","tan2"),
+       lty=c(0,0,0), 
+       pch=c(15,16,17))
+
+```
+
+***
+
+# Appendix: R Code {-}
+
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+```
