@@ -1,0 +1,351 @@
+---
+title: "Assignment 3: Part II"
+subtitle: "MAT-32806 Statistics for Data Scientists"
+author: 
+  - Citlali Melchor Ramírez^[Reg. No. 930522157110, Biosystems Engineering, <citlali.melchorramirez@wur.nl>]
+date: "`r format(Sys.time(), '%d %b %Y')`"
+output:
+  bookdown::pdf_document2
+geometry: left=1in, right=1in, top=1in, bottom=1in
+classoption: a4paper
+spacing: single
+link-citations: true
+
+---
+
+
+```{r setup, include=FALSE}
+# Chunks configuration 
+knitr::opts_chunk$set(echo = FALSE, 
+                      results='hide',
+                      warning=FALSE, 
+                      message=FALSE,
+                      fig.width=4.5, 
+                      fig.height=3.5, 
+                      tidy = FALSE)
+# Libraries used in this assignment
+library(pander)
+library(MASS) 
+library(pls)
+library(klaR)
+library(GGally)
+library(caret)
+```
+
+# Introduction
+Treating heterogeneous diseases requires a variety of treatments that lead to different outcomes. It is of crucial importance to select the right treatment for the right patient. In this practical, we focus on evaluation of many metabolites in urine for therapy selection. It is needed to predict whether a patient will respond to a treatment or not, based on the concentration of these metabolites. 
+
+## Data description
+A random sample of 183 patients was obtained from hospitals in the area of Wageningen. For each patient, a morning urine sample was collected. From this sample it was measured the concentration of 200 different metabolites by means of liquid chromatography coupled with mass spectrometry (LS-MS). 
+
+From the 183 sampled patients, 83 were responders to the treatment and 100 were non-responders. Table \@ref(tab:importData) shows a summary of five of the components measured during the sampling. 
+
+```{r tab:importData, results='asis'}
+# # Add pca functions to source
+source("PCA.R")
+# Load data
+load("Case_therapy_selection.RData")
+# Overview data
+n.pat<-nrow(data_treatment_response) # Number of patients
+n.met<-ncol(data_treatment_response) # Number of metabolites
+tresp<-table(label_treatment_response) # Responders and non-responders
+
+x<-data_treatment_response
+y<-as.factor(label_treatment_response)
+
+
+set.seed(9999)
+index<-sample(seq_len(183), size=120)
+# Treatments
+data.train<-x[index,] # Training treatment
+data.test<-x[-index,] # Testing treatment
+# Responses
+label.train<-y[index]  # Training response
+label.test<-y[-index]  # Testing response
+# Summary table
+pander(summary(x[5:10])[c(1,4,6),],
+       split.table=Inf, 
+       caption="(#tab:importData) Example data summary")
+```
+
+# Statistics description
+
+Since there is a larger number of variables than observations it was necessary to select a subset of predictors to perform the analysis. This sub selection was made by means of Principal Component Analysis. The dataset was split into a training and a testing set, containing 120 and 63 observations, respectively. Since the training set contained a reduced number of observations, it was implemented a a Leave-One-Out Cross Validation to select the number of principal components together with the selected classification model. Details are provided in the subsequent sections. 
+
+## Principal Component Analysis
+As mentioned above, there is a large number or variables to predict the response of the patients to a treatment. In order to summarize the predictors to a smaller set of representative variables it was performed a _Principal Component Analysis_. This type of analysis has an unsupervised approach; hence no response was necessary to find the principal components. 
+
+It is normally mentioned that data should be scaled prior to perform PCA. Figure \@ref(fig:scale) shows an example of how scaling looks on the variables. However, this is a consequence of the units and scale on which the variables were measured; for this particular case, all predictors are concentrations, so we assume that the units of measurement are the same for all of them and the scaling was not performed.   
+
+```{r scale, fig.width=8, fig.height=7, fig.cap='Original vs Scaled variables'}
+# Scaling example boxplots
+par(mfrow=c(2,1))
+boxplot(scale(x[,1:15], center = , scale = TRUE),
+        col = "#C77CFF", 
+        names=c(1:15), 
+        xlab='Component',
+        ylab='Concentration')
+boxplot(x[,1:15], 
+        col = "#7CAE00",
+        names=c(1:15), 
+        xlab='Component',
+        ylab='Concentration')
+
+```
+
+
+## Linear Discriminant Analysis 
+
+```{r LDA}
+start_time <- Sys.time() # Computational time
+# LOO-CV on the basis of 120 training observations
+lda_pred <- matrix(0,nrow = 120, ncol =10) 
+for (i in 1:120){ # Leave out ith training observation
+  # Split training data and training labels, left out
+  left_out_data <- data.train[i,]
+  left_out_label <- label.train[i]
+  # Split training data and training labels, remainder data
+  remainder_data <- data.train[sample(-i),]
+  remainder_label <- label.train[sample(-i)]
+  # Scale data (not required)
+  data_scale<- scale(data.train,
+                     center = FALSE, 
+                     scale = FALSE)
+  # Dimension reduction with PCA
+  pca.train<- PCA(data_scale)
+  # Calculate scores for test samples
+  scores_remainder <-as.matrix(remainder_data)%*%pca.train$loadings
+  scores_left_out <- as.matrix(left_out_data)%*%pca.train$loadings
+  # Select number of components
+  for (nPC in 1:10){ 
+    # Create data frame for fitting LDA:
+    data_remainder_fit <- data.frame(scores_remainder[,1:nPC], 
+                                     remainder_label) 
+    # Apply LDA
+    data_fit<-lda(remainder_label~., data = data_remainder_fit)
+    # Evaludate left-out sample
+    predictdf <- data.frame(data = scores_left_out)
+    colnames(predictdf) <- colnames(data_remainder_fit)[1:nPC]
+    # Store the value in the matrix
+    lda_pred[i,nPC] <- predict(data_fit, 
+                               newdata = predictdf[1:nPC])$class
+  }
+}
+# Computational time
+end_time <- Sys.time()
+LDA.time<-end_time - start_time
+```
+
+```{r validate, fig.cap='Principal components accuracy', results='asis'}
+# Compute cross-validation 
+CV_accuracy <- apply(lda_pred,2,FUN = function(x) { 
+  mean(x == as.numeric(label.train))
+  }) 
+# Plot Cross Validation Accuracy
+plot(CV_accuracy, 
+     type='b',
+     xlab='Number of components',
+     ylab='Accuracy', 
+     cex.lab=0.8,
+     cex.axis=0.6)
+# Optimal number or principal components
+opt_PC <- which.max(CV_accuracy) 
+```
+
+For the classification it was implemented a _Linear Discriminant Analysis_ model. Figure \@ref(fig:validate) shows the accuracy of prediction in function of the number of principal components, resulting from the LOO-CV. As we can see, the _'elbow'_ is shown in 6 components, even though the maximum accuracy is reached with 9 components. 
+
+The final model was created using six principal components. The training predictors were the scores of such components. The summary of this model is shown below.
+
+```{r modLDA, results='markdown', comment=''}
+opt_PC=6
+# Prepare the dataset for training
+# 6 optimum pc from Principal Component Analysis
+scores.train <-as.matrix(data.train)%*%pca.train$loadings
+data.train.fit <- data.frame(scores.train[,1:opt_PC], label.train) 
+# Define the Linear Discriminant Analysis model 
+my.lda<-lda(label.train~., data = data.train.fit)
+# Test the model
+scores.test <-as.matrix(data.test)%*%pca.train$loadings
+pred.df<- data.frame(data = scores.test)
+colnames(pred.df) <- colnames(data.train.fit)[1:opt_PC]
+
+mylda.pred<- predict(my.lda, newdata = pred.df[1:opt_PC])$class
+
+# Plot the results
+mylda.MSE<-mean((as.numeric(mylda.pred)-as.numeric(label.test))^2)
+
+my.lda
+```
+
+Then, the model was validated with the test dataset. The error was $MSE=0.1905$ for the predicted values. However, in classification, this is not enough to asses the performance of the model.  
+
+Table \@ref(tab:confMat) shows the confusion matrix comparing the LDA predictions to the true observations in the test sub dataset. Elements in the diagonal represent the individuals for which response to the treatment was correctly predicted; off-diagonal represent the individuals that were misclassified. For this case, the percentage of true Responders was 77.8%, which represents the _sensitivity_, while the percentage of true Non-responders was 83.3%, which is the _specificity_. 
+
+
+```{r tab:confMat, results='asis'}
+# Confussion matrix
+pander(confusionMatrix(mylda.pred, label.test)$table, 
+       caption='(#tab:confMat) Confusion Matrix LDA model')
+``` 
+
+Although the number of predictors (principal components) was reduced, it is not possible to visualize how the linear discriminant boundary would look like for all of them at the same time. However it is possible to visualize it for the different combinations of them. Figure \@ref(fig:LDAplots) shows such visualization. The elements with the 'R' represent the `Responder` and the 'N' the `Non-Responder`; the letters that are in gray represent the individuals that were misclassified. The gray line shows the decision boundary for the two classes and the colored dots are the classes means. 
+
+```{r LDAplots, fig.cap='Decision Boundaries LDA', fig.width=10, fig.height=7}
+data.test.fit <- data.frame(scores.test[,1:6], label.test) 
+
+partimat(label.test~.,
+         data=data.test.fit,
+         method="lda",
+         col.correct = c('lightseagreen', 'salmon'), 
+         col.wrong = "gray72",
+         col.mean=c('lightseagreen', 'salmon'),
+         imageplot=FALSE,
+         gs=c('R','N'),
+         col.contour = "darkgrey", 
+         main='',
+         nplots.vert=3,
+         nplots.hor=5)
+```
+
+## Logistic Regression 
+
+Another possibility for classification is a _Logistic Regression_ model. Since there are only two classes of response, it is possible to implement a Multiple Logistic Regression Model. 
+
+```{r LR}
+# Logistic Regression
+start_time <- Sys.time() # Computational time
+
+# LOO-CV on the basis of 120 training observations
+LR_pred <- matrix(0,nrow = 120, ncol =10) 
+for (i in 1:120){ # Leave out ith training observation
+  # Split training data and training labels, left out 
+  left_out_data <- data.train[i,]#[sample(i),] #lod
+  left_out_label <- label.train[i]#[sample(i)]
+  # Split training data and training labels,remainder 
+  remainder_data <- data.train[sample(-i),]
+  remainder_label <- label.train[sample(-i)]
+  # Scale data (not required)
+  data_scale<- scale(data.train,
+                     center = FALSE, 
+                     scale = FALSE)
+  # Dimension reduction with PCA
+  pca.train<- PCA(data_scale)
+  # Calculate scores for test samples
+  scores_remainder <-as.matrix(remainder_data)%*%pca.train$loadings
+  scores_left_out <- as.matrix(left_out_data)%*%pca.train$loadings
+  # Select number of components
+  for (nPC in 1:10){ 
+    data_remainder_fit <- data.frame(scores_remainder[,1:nPC], 
+                                     remainder_label)
+    colnames(data_remainder_fit)[dim(data_remainder_fit)[2]]<-'remainder_label'
+    # Apply LDA
+    data_fit<-glm(remainder_label~., data=data_remainder_fit, 
+                  family=binomial)
+    # Evaludate left-out sample
+    predictdf <- data.frame(data = scores_left_out)
+    colnames(predictdf) <- colnames(data_remainder_fit)[1:nPC]
+    # # Store the value in the matrix
+    LR.probs<- predict(data_fit, newdata = predictdf[1:nPC], 
+                       type = 'response')
+    LR.pred = rep("1",length(LR.probs))
+    LR.pred[LR.probs>0.5333] = "2"
+    
+    LR_pred[i,nPC]<-LR.pred
+  }
+}
+# Computational time
+end_time <- Sys.time()
+LR.time<-end_time - start_time
+```
+
+
+Figure \@ref(fig:LRvalidate) shows the accuracy of prediction in function of the number of principal components, resulting from the LOO-CV. As we it reaches a maximum accuracy at 6 components, from where it starts to decrease when adding more principal components.  
+
+
+```{r LRvalidate, fig.cap='Principal components accuracy'}
+# Compute cross-validation accuracy 
+CV_accuracy <- apply(LR_pred,2,FUN = function(x) { 
+  mean(x == (as.numeric(label.train)))
+  }) 
+plot(CV_accuracy, 
+     type='b',
+     xlab='Number of components',
+     ylab='Accuracy', 
+     cex.lab=0.8,
+     cex.axis=0.6)
+# Optimal number of Principal Components
+opt_PC <- which.max(CV_accuracy) 
+```
+
+
+The final model was first created using six principal components. However, after estimating the coefficients of the model it was found that components 1 and 2 presented a `p-value` higher than 0.05, which would represent that there might not be an association between those principal components (predictors) and the response. Hence, a reduced model was selected using only components three to six. The summary of the model is shown below. 
+
+```{r modLR, results='markdown', comment=''}
+# Select the PC
+opt_PC=6
+scores.train <-as.matrix(data.train)%*%pca.train$loadings
+data.train.fit <- data.frame(scores.train[,1:opt_PC], label.train) 
+# Define the Logistic Regression Model
+my.LR<-glm(label.train~PC.3+PC.4+PC.5+PC.6, data = data.train.fit, family=binomial)
+# Test the model
+scores.test <-as.matrix(data.test)%*%pca.train$loadings
+pred.df<- data.frame(data = scores.test)
+colnames(pred.df) <- colnames(data.train.fit)[1:opt_PC]
+
+myLR.probs<- predict(my.LR, newdata = pred.df[1:opt_PC], type='response')
+
+LR.pred = rep('Responder',length(myLR.probs))
+LR.pred[myLR.probs>0.53333] = 'non-responder'
+LR.pred<-as.factor(LR.pred)
+LR.pred=relevel(LR.pred,'Responder')
+
+myLR.MSE<-mean((as.numeric(LR.pred)-as.numeric(label.test))^2)
+
+summary(my.LR)
+```
+
+The MSE value was the same as for the LDA model. Moreover, Table \@ref(tab:confMatLR) shows the confusion matrix comparing the LR predictions to the true observations in the test sub dataset. Elements in the diagonal represent the individuals for which response to the treatment was correctly predicted; off-diagonal represents the individuals that were misclassified. For this case, sensitivity was 81.48% and specificity was 80.95%.
+
+```{r tab:confMatLR, results='asis'}
+# Confussion matrix
+pander(confusionMatrix(LR.pred, label.test)$table, 
+       caption='(#tab:confMatLR) Confusion Matrix LR model')
+``` 
+
+# Conclusions
+
+Two models were implemented to predict whether a patient is responder or non-responder to a medical treatment based on the concentration of different metabolites. The first model was a Linear Discriminant Analysis and the second one was a Logistic Regression model. 
+
+An assessment for both models is shown in Table \@ref(tab:assesClas). Depending on the objective of the treatment would be the selection of the model. For instance, if is required to increase the probability of identifying a patient that might not respond to a treatment (because the treatment could be very expensive or produce sequels), the LDS model would perform better since it has a higher specificity and a lower sensitivity than the LR. On the other hand, if it is  preferred to identify those patients that are responders to the treatment (because the absence of it could endanger their life, for example), the LR model should be selected since it has a lower specificity and a higher sensitivity, which would increase the probability of identifying a responder patient. 
+
+Additional to the sensitivity and specificity, the Positive and Negative Prediction Values and Precision for both models were compared. Similar to the above analysis, the LDA model outperformed identifying Positive Values (`Responder`), while the LR model identifies better Negative values (`Non-responder`). However for this case, the LDA model had a higher Precision, which in addition to the values of Sensitivity and Specificity make it the most suitable for the prediction of treatment response. 
+
+```{r tab:assesClas, results='asis'}
+# Models comparison, confussion matrices
+Model<-rbind('LDA', 'LR')
+
+table<-rbind(confusionMatrix(mylda.pred, label.test)$byClass[1:5],
+             confusionMatrix(LR.pred, label.test)$byClass[1:5])
+
+pander(data.frame(Model,table),
+       caption='(#tab:assesClas) Classification assessment',
+       digits=4,
+       split.table=Inf
+       )
+```
+
+Finally, it is also interesting to look at the computational time of the training of both models, which is shown in Table \@ref(tab:time). As we can see, the computational time of the LR model is faster than the LDA model, this could be explained because the LR model contains less predictors than the LDA model.
+
+```{r tab:time, results='asis'}
+# Computational time table
+pander(cbind(LDA.time,LR.time), 
+       caption='(#tab:time) Computational time, seconds')
+```
+
+
+# Appendix: R Code
+
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+```
+
+

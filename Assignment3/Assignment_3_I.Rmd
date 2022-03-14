@@ -1,0 +1,360 @@
+---
+title: "Assignment 3: Part I"
+subtitle: "MAT-32806 Statistics for Data Scientists"
+author: 
+  - Citlali Melchor Ramírez^[Reg. No. 930522157110, Biosystems Engineering, <citlali.melchorramirez@wur.nl>]
+date: "`r format(Sys.time(), '%d %b %Y')`"
+output:
+  bookdown::pdf_document2
+geometry: left=1in, right=1in, top=1.5in, bottom=1.5in
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, 
+                      results='hide',
+                      warning=FALSE, 
+                      message=FALSE,
+                      fig.width=4.5, 
+                      fig.height=3.5, 
+                      tidy = FALSE)
+# Libraries used in this assignment
+library(pander)
+library(broom)
+library(randomForest)
+library(gbm)
+library(glmnet)
+```
+
+# Introduction
+
+It is required to predict the ash content from the fluorescence spectra of sugar, which wavelengths ranges from 324.5 to 560.0 nm. For this purpose, different ensemble models were used, such as:
+* Random Forests
+* Bagging 
+* Boosting. 
+The results were also compared with a Lasso model to highlight the principal differences between ensemble models and linear regression models. 
+
+## Data description
+
+The dataset consists of 266 observations and 472 explanatory variables. Figure \@ref(fig:loadData) shows a briefly exploration of the data, (a) shows the intensity of the different wavelengths and (b) shows the distribution of the ash content. 
+
+```{r loadData, fig.width=10, fig.height=4,  results='asis', fig.cap='(a) Intensity of different wavelengths; (b) Distribution of Ash Content '}
+# Load the data
+load(file="sugar.Rdata")
+# Create the data set
+y <- sugar$ash
+x <- sugar$NIR
+dataset <- data.frame(cbind(y,x))
+p <- dim(x)[2] # Number of parameters
+# Descriptive plots
+par(mfrow=c(1,2))
+plot(colMeans(sugar$NIR)~seq(324.5,560, by=0.5),
+     type="l",
+     xlab="Wavelength, nm",
+     ylab="Intensity",
+     main='(a)',
+     col="#F8766D")
+hist(sugar$ash, 
+     xlab='Ash content, %',
+     main='(b)', 
+     col='#00BFC4')
+```
+
+# Statistics Description
+Due to the limited amount of observations, the dataset was not split in train and test subsets. 
+
+## Random Forest, $m=\sqrt{p}$
+The first model to be considered was a `Random Forest` of 500 trees, with an $m= \sqrt{p}$, since there are 472 predictors, $m$ was 22 (rounded). Figure \@ref(fig:forest1) shows the estimated values compared with the true ash concentration, with a mean of squared errors of $MSE=0.6529$.
+
+```{r forest1, results='asis', fig.cap='Random Forest, m=sqrt(p)'}
+start_time <- Sys.time() # Computational time
+# Create the random forest m = sqrt(p) 
+set.seed(1) # Fixing the randomization
+rf.sugar <- randomForest(y~., data = dataset,
+                         importance = TRUE, 
+                         mtry = round(sqrt(p)),
+                         ntree = 500)
+# Test the model
+yhat.rf <- predict(rf.sugar, newdata = dataset)
+rf.MSE <- mean((yhat.rf - y)^2)
+
+end_time <- Sys.time()
+rf.time<-end_time - start_time
+
+rf.msr<-rf.sugar$mse[500] # Mean of squared residuals
+rf.var<-rf.sugar$rsq[500]*100 # % Var explained
+# Plot the results
+plot(yhat.rf~y,
+     xlab="Ash Content",
+     ylab="Predicted Ash Content",
+     xlim=c(5, 25), 
+     ylim=c(5, 25),
+     cex.lab=0.8,
+     cex.axis=0.6)
+abline(a=0, b=1, col='#F8766D')
+grid(5, 5, lwd = 2)
+
+```
+
+## Random Forest, $m=p/2$
+The second model to consider was a random forest but with a $m=p/m$, which was 236 variables per split. Figure \@ref(fig:forest2) displays the estimated and true ash concentrations. The $MSE=0.6268$ was lower than the previous model, but the computational time was also longer since there were more variables considered in each split. 
+
+```{r forest2,results='asis', fig.cap='Random Forest, m=p/2'}
+start_time <- Sys.time() # Computational time
+# Create the random forest m = p/2
+set.seed(1) # Fixing the randomization
+rf.sugar2 <- randomForest(y~., data = dataset,
+                         importance = TRUE, 
+                         mtry = p/2,
+                         ntree = 500)
+# Test the model
+yhat.rf2 <- predict(rf.sugar2, 
+                    newdata = dataset, 
+                    n.trees=500)
+rf2.MSE <- mean((yhat.rf2 - y)^2)
+
+end_time <- Sys.time()
+rf2.time<-end_time - start_time
+
+rf2.msr<-rf.sugar2$mse[500] # Mean of squared residuals
+rf2.var<-rf.sugar2$rsq[500]*100 # % Var explained
+#Plot the results
+plot(yhat.rf2~y,
+     xlab="Ash Content",
+     ylab="Predicted Ash Content",
+     xlim=c(5, 25), 
+     ylim=c(5, 25),
+     cex.lab=0.8,
+     cex.axis=0.6)
+abline(a=0, b=1, col='#F8766D')
+grid(5, 5, lwd = 2)
+```
+
+## Bagging, $m=p$
+Then, it was considered a random forest with the same number of variables as the data, which is also called _Bagging model_. For this case $m=p$, i.e. 472 variables per split. Figure \@ref(fig:bagging) shows the estimated values for ash content in comparison to the true values. The mean of squared errors was $MSE=0.6324$.
+
+```{r bagging, results='asis', fig.cap='Bagging, m=p'}
+start_time <- Sys.time() # Computational time
+# Create a bagging model, m=p
+set.seed(1) # Fixing the randomization
+bag.sugar <- randomForest(y~., data = dataset,
+                         importance = TRUE, 
+                         mtry = p,
+                         ntree = 500)
+# Test the model
+yhat.bag <- predict(bag.sugar, 
+                    newdata = dataset, 
+                    n.trees=500)
+
+bag.MSE <- mean((yhat.bag - y)^2)
+
+end_time <- Sys.time()
+bag.time<-end_time - start_time
+
+bag.msr<-bag.sugar$mse[500] # Mean of squared residuals
+bag.var<-bag.sugar$rsq[500]*100 # % Var explained
+# Plot the results
+plot(yhat.bag~y,
+     xlab="Ash Content",
+     ylab="Predicted Ash Content",
+     xlim=c(5, 25), 
+     ylim=c(5, 25),
+     cex.lab=0.8,
+     cex.axis=0.6)
+abline(a=0, b=1, col='#F8766D')
+grid(5, 5, lwd = 2)
+```
+
+## Boosting
+A boosting model with stumps was implemented also using 500 trees, and a interaction depth of 4. Figure \@ref(fig:boosting) shows the comparison between true and estimated values of ash content, as we can see, the performance of this model is better than the random forest and bagging models. This could be explained because `boosting` fits trees in a sequenced way using the residuals. The mean of square error was $MSE=0.0338$.
+
+
+```{r boosting, results='asis', fig.cap='Boosting'}
+start_time <- Sys.time() # Computational time
+# Create a boosting model
+boost.sugar<-gbm(y~., data = dataset, 
+                 distribution = "gaussian",
+                 n.trees = 500,
+                 interaction.depth = 4)
+# Test the model
+yhat.boost<-predict(boost.sugar, 
+                    newdata = dataset, 
+                    n.trees = 500)
+
+boost.MSE <- mean((yhat.boost - y)^2)
+
+end_time <- Sys.time()
+boost.time<-end_time - start_time
+# Plot the results
+plot(yhat.boost~y,
+     xlab="Ash Content",
+     ylab="Predicted Ash Content",
+     xlim=c(5, 25), 
+     ylim=c(5, 25),
+     cex.lab=0.8,
+     cex.axis=0.6)
+abline(a=0, b=1, col='#F8766D')
+grid(5, 5, lwd = 2)
+```
+ 
+From this model is also interesting to look at the variables that contribute the most in reducing the Residual Sum of Squares. Figure \@ref(fig:varImp) shows the ten variables that contribute the most in RSS reduction. From the summary it was shown that from the 472 predictors, 433 had non-zero influence, which means that not all predictors were contributing to decrease the RSS. Furthermore, not all the predictors have a significant contribution, which can also be seen in Figure \@ref(fig:varImp); the first five variables decrease substantially the RSS and after that the decrease is less relevant. 
+ 
+```{r varImp, fig.height=3, fig.width=4, fig.cap='Boosting: Relative Importance'}
+# Plot the Variables relative importance
+par(mar = c(4.5,5.5,1,1))
+summary(boost.sugar, 
+        cBars = 10,
+        n.trees = 500, 
+        plotit = TRUE, 
+        order = TRUE,
+        las=1)
+
+```
+
+## Comparison with Lasso
+
+Finally, recalling the Lasso model from previous practicals, we can see in Figure \@ref(fig:lasso) that the prediction is poorer in comparison to random forests, bagging and boosting, with an $MSE=3.013$. The performance of Lasso in comparison to ensemble models could be explained because of the large number of predictors. 
+
+```{r lasso, fig.cap="Lasso model"}
+start_time <- Sys.time() # Computational time
+# Recall Lasso model
+set.seed(1)
+mdl <- cv.glmnet(x,y, alpha=1)
+yhat <- predict(mdl, newx=x)
+lasso.MSE <- mean((y - yhat)^2)
+
+end_time <- Sys.time()
+lasso.time<-end_time - start_time
+# Plot the results
+plot(yhat~y,
+     xlab="Ash Content",
+     ylab="Predicted Ash Content",
+     xlim=c(5, 25), 
+     ylim=c(5, 25),
+     cex.lab=0.8,
+     cex.axis=0.6)
+abline(a=0, b=1, col='#F8766D')
+grid(5, 5, lwd = 2)
+```
+
+
+# Conclusions
+
+Table \@ref(tab:summ) summarizes the comparison among the models implemented for this practical. As we can see, the ensemble models out-stood the Lasso model. From those, the best model was the Boosting, with the lowest `MSE`. However, it should also be taken into account that this model could overfit the data if the number of trees is too large, this could be tested with Cross Validation, but it was not part of this practical. 
+
+When it comes to the Random Forest models, including Bagging, it was possible to see that the model fits better to the data when it has a larger $m$ variables at each split, but it will also take longer to compute the training process. 
+
+```{r tab:summ, results='asis'}
+# Create a table with the results 
+MSEs<-list ('names'=c('Random Forest, m=sqrt(p)',
+                      'Random Forest 2, m=p/2', 
+                      'Bagging, m=p', 
+                      'Boosting', 
+                      'Lasso'),
+           'MSE'= format(c(rf.MSE, 
+                           rf2.MSE, 
+                           bag.MSE, 
+                           boost.MSE, 
+                           lasso.MSE), digits=3), 
+           'MSR'=format(c(rf.msr,
+                          rf2.msr,
+                          bag.msr,
+                          NaN,
+                          NaN), digits=5),
+           'Var'=format(c(rf.var,
+                          rf2.var,
+                          bag.var,
+                          NaN,
+                          NaN), digits=4))
+pander(as.data.frame(MSEs, col.names = c('Model','MSE', 'MSR', 'Var explained')),
+       caption='(#tab:summ) Models comparison')
+```
+
+Table \@ref(tab:importancerf) shows the ten variables that contribute the most in the reduction of the error in the Random Forest model with $m=\sqrt{p}$.
+
+```{r tab:importancerf, results='asis'}
+# Random forest, 10 variables of importance
+rf.imp<-as.data.frame(importance(rf.sugar))
+rf.imp.ord<-rf.imp[order( -rf.imp[,1] ),]
+pander(rf.imp.ord[1:10,], 
+       caption="(#tab:importancerf)Importance rf")
+```
+
+Table \@ref(tab:importancerf2) shows the ten variables that reduce the most the error in the Random Forest model with $m=p/2$.
+
+```{r tab:importancerf2, results='asis'}
+# Random forest 2, 10 variables of importance
+rf2.imp<-as.data.frame(importance(rf.sugar2))
+rf2.imp.ord<-rf2.imp[order( -rf2.imp[,1] ),]
+pander(rf2.imp.ord[1:10,], 
+       caption="(#tab:importancerf2)Importance rf2")
+```
+
+Table \@ref(tab:importancebag) shows the variables that reduce the most the error in the Bagging model with $m=p$.
+
+```{r tab:importancebag, results='markdown'}
+# Bagging, 10 variables of importance
+bag.imp<-as.data.frame(importance(bag.sugar))
+bag.imp.ord<-rf2.imp[order( -bag.imp[,1] ),]
+pander(bag.imp.ord[1:10,], 
+       caption="(#tab:importancebag)Importance bagging")
+```
+
+Table \@ref(tab:importanceboost) shows the ten variables that have the highest contribution in reducing the error in the Boosting model and their respective relative influences. As mentioned before, the relative influence is higher in the first five variables from the table; after that, the change is less significant. 
+
+```{r tab:importanceboost, results='markdown'}
+# Boosting, 10 variables of importance
+pander(summary(boost.sugar,
+               plotit = FALSE)[1:10,],
+       caption="(#tab:importanceboost)Importance boosting")
+```
+
+From the previous tables it is possible to observe that not the same variables are important for each model. For example, variables `491 nm`, `559 nm` and `504 nm`  coincide in more than two models, but are not in the same level of importance. This makes sense because bagged trees are constructed by means of bootstrapped samples. Figure \@ref(fig:waves) shows the different important wavelengths per model, it is possible to observe that, even with different predictive wavelengths, the regions of relevance are the same, where there are some peaks, between approximately 325 nm and 360 nm, around 400 nm and 500 nm.
+
+```{r waves, fig.width=9, fig.cap="Predictive wavelengths", results='markdown'}
+colvalues<-cbind(c(339.5, 495.5, 334.5,  328.5, 509, 503.5, 424.5, 491, 349, 504),# rf
+                 c(491, 504.5, 502, 559, 509, 504, 416.5, 503.5, 534.5, 423),# rf2
+                 c(491, 559, 504, 474, 504.5, 423, 416.5, 325, 397.5, 503.5),# bag
+                 c(501.5, 559, 513, 506, 350, 503.5, 325, 484, 508, 358.5)) #boost
+names=c('Random Forest 1',
+        'Random Forest 2', 
+        'Bagging', 
+        'Boosting')
+par(mar=c(5.1, 4.1, 1, 14.1))  
+plot(colMeans(sugar$NIR)~seq(324.5,560, by=0.5),
+     type="l", 
+     xlab="Wavelength, nm", 
+     ylab="Intensity")
+abline(v=colvalues, col=c('#F8766D','#00BFC4','#7CAE00','#C77CFF'))
+par(xpd=TRUE)
+legend("right",inset=c(-0.42,0),
+       legend=names, 
+       lty=1, 
+       cex=1, 
+       col=c('#F8766D','#00BFC4','#7CAE00','#C77CFF'))
+```
+
+As mentioned previously, the number of variables considered in each split influences the computational time of each model training. Table \@ref(tab:time) shows a comparison of the time it takes to perform the model training for the five above mentioned models. As we can see, the larger the number of variables per split, the longer the times it takes to perform the training process. However, the Boosting model did not take a long time and also it performed better in the testing, as mentioned before. 
+
+```{r tab:time, results='markdown'}
+# Computational time, summary table
+TIMEs<-list ('names'=c('Random Forest, m=sqrt(p)',
+                      'Random Forest 2, m=p/2', 
+                      'Bagging, m=p', 
+                      'Boosting', 
+                      'Lasso'),
+           'time'= format(c(rf.time, 
+                           rf2.time, 
+                           bag.time, 
+                           boost.time, 
+                           lasso.time), digits=3))
+pander(as.data.frame(TIMEs, col.names = c('Model','Computational time, s')),
+       caption='(#tab:time) Models computational time')
+```
+
+\pagebreak
+
+# Appendix: R Code {-}
+
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+```
